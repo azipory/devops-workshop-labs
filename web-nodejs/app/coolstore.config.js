@@ -7,7 +7,7 @@ var config = {
 if (process.env.COOLSTORE_GW_ENDPOINT != null) {
     config.API_ENDPOINT = process.env.COOLSTORE_GW_ENDPOINT;
 } else if (process.env.COOLSTORE_GW_SERVICE != null) {
-    config.API_ENDPOINT = process.env.COOLSTORE_GW_SERVICE + '-' + process.env.OPENSHIFT_BUILD_NAMESPACE;
+    config.API_ENDPOINT = process.env.COOLSTORE_GW_SERVICE;
 }
 
 if (process.env.SECURE_COOLSTORE_GW_ENDPOINT != null) {
