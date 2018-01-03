@@ -1,8 +1,10 @@
 apiVersion: v1
 kind: Template
+labels:
+  demo: coolstore-microservice
 metadata:
   annotations:
-    description: CoolStore Microservices Application Template
+    description: CoolStore demo microservices deployments persistent template
     iconClass: icon-java
     tags: microservice,jboss,spring
   name: coolstore
@@ -23,11 +25,11 @@ objects:
   metadata:
     name: web-ui
     labels:
-      application: coolstore
-      component: web-ui
+      application: web-ui
   spec:
     replicas: 1
     selector:
+      application: web-ui
       deploymentconfig: web-ui
     strategy:
       resources: {}
@@ -35,18 +37,13 @@ objects:
     template:
       metadata:
         labels:
-          application: coolstore
-          component: web-ui
+          application: web-ui
           deploymentconfig: web-ui
       spec:
         containers:
         - env:
-          - name: KUBERNETES_NAMESPACE
-            valueFrom:
-              fieldRef:
-                fieldPath: metadata.namespace
-          - name: COOLSTORE_GW_SERVICE
-            value: gw
+          - name: COOLSTORE_GW_ENDPOINT
+            value: http://gw-${HOSTNAME_SUFFIX}
           - name: HOSTNAME_HTTP
             value: web-ui:8080
           image: web-ui
@@ -56,22 +53,26 @@ objects:
           - containerPort: 8080
             protocol: TCP
           livenessProbe:
-            failureThreshold: 5
-            httpGet:
-              path: /
-              port: 8080
-              scheme: HTTP
-            initialDelaySeconds: 120
+            failureThreshold: 10
+            exec:
+              command:
+                - curl
+                - '-f'
+                - 'http://localhost:8080'
+            initialDelaySeconds: 60
+            timeoutSeconds: 10
             periodSeconds: 5
             successThreshold: 1
             timeoutSeconds: 5
           readinessProbe:
-            failureThreshold: 5
-            httpGet:
-              path: /
-              port: 8080
-              scheme: HTTP
-            initialDelaySeconds: 15
+            failureThreshold: 10
+            exec:
+              command:
+                - curl
+                - '-f'
+                - 'http://localhost:8080'
+            initialDelaySeconds: 60
+            timeoutSeconds: 10
             periodSeconds: 5
             successThreshold: 1
             timeoutSeconds: 1
@@ -103,8 +104,7 @@ objects:
   metadata:
     labels:
       app: web-ui
-      application: coolstore
-      component: web-ui
+      application: web-ui
     name: web-ui
   spec:
     ports:
@@ -119,9 +119,9 @@ objects:
   metadata:
     name: web-ui
     labels:
-      application: coolstore
-      component: web-ui
+      application: web-ui
   spec:
+    host: web-ui-${HOSTNAME_SUFFIX}
     to:
       kind: Service
       name: web-ui
@@ -131,8 +131,7 @@ objects:
   metadata:
     name: coolstore-gw
     labels:
-      application: coolstore
-      component: coolstore-gw
+      application: coolstore-gw
   spec:
     replicas: 1
     selector:
@@ -143,8 +142,7 @@ objects:
     template:
       metadata:
         labels:
-          application: coolstore
-          component: coolstore-gw
+          application: coolstore-gw
           deploymentconfig: coolstore-gw
         name: coolstore-gw
       spec:
@@ -154,29 +152,39 @@ objects:
             valueFrom:
               fieldRef:
                 fieldPath: metadata.namespace
-          - name: DISABLE_CART_DISCOVERY
-            value: true
+#          - name: DISABLE_CART_DISCOVERY
+#            value: true
           image: library/coolstore-gw:${APP_VERSION}
           livenessProbe:
-            httpGet:
-              path: /health
-              port: 8080
-            initialDelaySeconds: 15
+            exec:
+              command:
+                - curl
+                - '-f'
+                - 'http://localhost:8081/health'
+            initialDelaySeconds: 30
+            failureThreshold: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
           name: coolstore-gw
           ports:
           - containerPort: 8778
             name: jolokia
           readinessProbe:
-            httpGet:
-              path: /health
-              port: 8080
-            initialDelaySeconds: 10
+            exec:
+              command:
+                - curl
+                - '-f'
+                - 'http://localhost:8081/health'
+            initialDelaySeconds: 30
+            failureThreshold: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
           resources:
             limits:
               cpu: 1
               memory: 2Gi
             requests:
-              cpu: 100m
+              cpu: 200m
               memory: 512Mi
     triggers:
     - imageChangeParams:
@@ -194,10 +202,9 @@ objects:
   metadata:
     labels:
       app: coolstore-gw
-      application: coolstore
-      component: coolstore-gw
+      application: coolstore-gw
       hystrix.enabled: "true"
-    name: gw
+    name: coolstore-gw
   spec:
     ports:
     - port: 8080
@@ -208,22 +215,258 @@ objects:
 - apiVersion: v1
   kind: Route
   metadata:
-    name: gw
+    name: coolstore-gw
     labels:
-      application: coolstore
-      component: coolstore-gw
+      application: coolstore-gw
   spec:
+    host: gw-${HOSTNAME_SUFFIX}
     to:
       kind: Service
-      name: gw
+      name: coolstore-gw
+# Inventory Service
+- apiVersion: v1
+  kind: DeploymentConfig
+  metadata:
+    name: inventory
+    labels:
+      application: inventory
+  spec:
+    replicas: 1
+    selector:
+      deploymentconfig: inventory
+    strategy:
+      resources: {}
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          application: inventory
+          deploymentconfig: inventory
+        name: inventory
+      spec:
+        containers:
+        - env:
+          - name: OPENSHIFT_KUBE_PING_LABELS
+            value: application=inventory
+          - name: OPENSHIFT_KUBE_PING_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          - name: MQ_CLUSTER_PASSWORD
+            value: 7mzX0pLV03
+          - name: JGROUPS_CLUSTER_PASSWORD
+            value: CqUo3fYDTv
+          - name: AUTO_DEPLOY_EXPLODED
+            value: "false"
+          - name: DB_SERVICE_PREFIX_MAPPING
+            value: inventory-postgresql=DB
+          - name: DB_JNDI
+            value: java:jboss/datasources/InventoryDS
+          - name: DB_USERNAME
+            value: ${INVENTORY_DB_USERNAME}
+          - name: DB_PASSWORD
+            value: ${INVENTORY_DB_PASSWORD}
+          - name: DB_DATABASE
+            value: inventorydb
+          image: inventory
+          imagePullPolicy: Always
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                - /opt/eap/bin/jboss-cli.sh
+                - -c
+                - :shutdown(timeout=60)
+          livenessProbe:
+            failureThreshold: 10
+            httpGet:
+              path: /api/availability/1
+              port: 8080
+              scheme: HTTP
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+          name: inventory
+          ports:
+          - containerPort: 8778
+            name: jolokia
+            protocol: TCP
+          - containerPort: 8080
+            name: http
+            protocol: TCP
+          - containerPort: 8888
+            name: ping
+            protocol: TCP
+          readinessProbe:
+            failureThreshold: 10
+            httpGet:
+              path: /api/availability/1
+              port: 8080
+              scheme: HTTP
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          resources:
+            limits:
+              cpu: 1
+              memory: 2Gi
+            requests:
+              cpu: 100m
+              memory: 1Gi
+          terminationMessagePath: /dev/termination-log
+        dnsPolicy: ClusterFirst
+        restartPolicy: Always
+        securityContext: {}
+        terminationGracePeriodSeconds: 75
+    triggers:
+    - imageChangeParams:
+        automatic: true
+        containerNames:
+        - inventory
+        from:
+          kind: ImageStreamTag
+          namespace: ${IMAGESTREAM_NAMESPACE}
+          name: coolstore-inventory:${APP_VERSION}
+      type: ImageChange
+    - type: ConfigChange
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      service.alpha.openshift.io/dependencies: '[{"name":"inventory-postgresql","namespace":"","kind":"Service"}]'
+    labels:
+      app: inventory
+      application: inventory
+    name: inventory
+  spec:
+    ports:
+    - port: 8080
+      protocol: TCP
+      targetPort: 8080
+    selector:
+      deploymentconfig: inventory
+- apiVersion: v1
+  kind: Route
+  metadata:
+    labels:
+      application: inventory
+    name: inventory
+  spec:
+    host: inventory-${HOSTNAME_SUFFIX}
+    to:
+      kind: Service
+      name: inventory
+      weight: 100
+- apiVersion: v1
+  kind: DeploymentConfig
+  metadata:
+    name: inventory-postgresql
+    labels:
+      application: inventory
+  spec:
+    replicas: 1
+    selector:
+      deploymentconfig: inventory-postgresql
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          application: inventory
+          deploymentconfig: inventory-postgresql
+        name: inventory-postgresql
+      spec:
+        containers:
+        - env:
+          - name: POSTGRESQL_USER
+            value: ${INVENTORY_DB_USERNAME}
+          - name: POSTGRESQL_PASSWORD
+            value: ${INVENTORY_DB_PASSWORD}
+          - name: POSTGRESQL_DATABASE
+            value: inventorydb
+          image: postgresql
+          imagePullPolicy: Always
+          name: inventory-postgresql
+          ports:
+          - containerPort: 5432
+            protocol: TCP
+          volumeMounts:
+          - mountPath: /var/lib/pgsql/data
+            name: inventory-postgresql-data
+          livenessProbe:
+            initialDelaySeconds: 30
+            failureThreshold: 10
+            periodSeconds: 10
+            tcpSocket:
+              port: 5432
+            timeoutSeconds: 1
+          readinessProbe:
+            exec:
+              command:
+              - /bin/sh
+              - -i
+              - -c
+              - psql -h 127.0.0.1 -U $POSTGRESQL_USER -q -d $POSTGRESQL_DATABASE -c 'SELECT 1'
+            initialDelaySeconds: 5
+            timeoutSeconds: 1
+            failureThreshold: 10
+            periodSeconds: 5
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 50m
+              memory: 256Mi
+        terminationGracePeriodSeconds: 60
+        volumes:
+        - name: inventory-postgresql-data
+          persistentVolumeClaim:
+            claimName: inventory-postgresql-pv
+    triggers:
+    - imageChangeParams:
+        automatic: true
+        containerNames:
+        - inventory-postgresql
+        from:
+          kind: ImageStreamTag
+          name: postgresql:latest
+          namespace: openshift
+      type: ImageChange
+    - type: ConfigChange
+- apiVersion: v1
+  kind: Service
+  metadata:
+    labels:
+      application: inventory
+    name: inventory-postgresql
+  spec:
+    ports:
+    - port: 5432
+      targetPort: 5432
+    selector:
+      deploymentconfig: inventory-postgresql
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    labels:
+      application: inventory
+    name: inventory-postgresql-pv
+  spec:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: 1Gi
 # Catalog Service
 - apiVersion: v1
   kind: DeploymentConfig
   metadata:
     name: catalog
     labels:
-      application: coolstore
-      component: catalog
+      application: catalog
   spec:
     replicas: 1
     selector:
@@ -234,8 +477,7 @@ objects:
     template:
       metadata:
         labels:
-          application: coolstore
-          component: catalog
+          application: catalog
           deploymentconfig: catalog
         name: catalog
       spec:
@@ -263,30 +505,32 @@ objects:
           - containerPort: 8080
             name: http
             protocol: TCP
-          readinessProbe:
-            failureThreshold: 5
-            httpGet:
-              path: /health
-              port: 8080
-              scheme: HTTP
-            initialDelaySeconds: 15
-            periodSeconds: 5
-            successThreshold: 1
-            timeoutSeconds: 1
           livenessProbe:
-            failureThreshold: 5
-            httpGet:
-              path: /health
-              port: 8080
-              scheme: HTTP
-            initialDelaySeconds: 15
-            periodSeconds: 5
-            successThreshold: 1
+            exec:
+              command:
+                - curl
+                - '-f'
+                - 'http://localhost:8080/api/products'
+            initialDelaySeconds: 60
             timeoutSeconds: 1
+            periodSeconds: 10
+            successThreshold: 1
+            failureThreshold: 10
+          readinessProbe:
+            exec:
+              command:
+                - curl
+                - '-f'
+                - 'http://localhost:8080/api/products'
+            initialDelaySeconds: 60
+            timeoutSeconds: 1
+            periodSeconds: 10
+            successThreshold: 1
+            failureThreshold: 10
           resources:
             limits:
-              cpu: 2
-              memory: 2Gi
+              cpu: 500m
+              memory: 1Gi
             requests:
               cpu: 100m
               memory: 256Mi
@@ -302,8 +546,8 @@ objects:
         - catalog
         from:
           kind: ImageStreamTag
-          name: coolstore-catalog:${APP_VERSION}
           namespace: ${IMAGESTREAM_NAMESPACE}
+          name: coolstore-catalog:${APP_VERSION}
       type: ImageChange
     - type: ConfigChange
 - apiVersion: v1
@@ -313,8 +557,7 @@ objects:
       service.alpha.openshift.io/dependencies: '[{"name":"catalog-mongodb","namespace":"","kind":"Service"}]'
     labels:
       app: catalog
-      application: coolstore
-      component: catalog
+      application: catalog
     name: catalog
   spec:
     ports:
@@ -327,10 +570,10 @@ objects:
   kind: Route
   metadata:
     labels:
-      application: coolstore
-      component: catalog
+      application: catalog
     name: catalog
   spec:
+    host: catalog-${HOSTNAME_SUFFIX}
     to:
       kind: Service
       name: catalog
@@ -340,8 +583,7 @@ objects:
   metadata:
     labels:
       app: catalog
-      application: coolstore
-      component: catalog
+      application: catalog
     name: catalog-mongodb
   spec:
     ports:
@@ -357,8 +599,7 @@ objects:
   kind: DeploymentConfig
   metadata:
     labels:
-      application: coolstore
-      component: catalog
+      application: catalog
     name: catalog-mongodb
   spec:
     replicas: 1
@@ -372,8 +613,7 @@ objects:
     template:
       metadata:
         labels:
-          application: coolstore
-          component: catalog
+          application: catalog
           deploymentconfig: catalog-mongodb
       spec:
         containers:
@@ -393,7 +633,7 @@ objects:
           image: mongodb
           imagePullPolicy: IfNotPresent
           livenessProbe:
-            failureThreshold: 3
+            failureThreshold: 10
             initialDelaySeconds: 30
             periodSeconds: 10
             successThreshold: 1
@@ -412,8 +652,8 @@ objects:
               - -c
               - mongo 127.0.0.1:27017/$MONGODB_DATABASE -u $MONGODB_USER -p $MONGODB_PASSWORD
                 --eval="quit()"
-            failureThreshold: 3
-            initialDelaySeconds: 3
+            failureThreshold: 10
+            initialDelaySeconds: 5
             periodSeconds: 10
             successThreshold: 1
             timeoutSeconds: 1
@@ -455,23 +695,21 @@ objects:
   kind: PersistentVolumeClaim
   metadata:
     labels:
-      application: coolstore
-      component: catalog
+      application: catalog
     name: mongodb-data-pv
   spec:
     accessModes:
     - ReadWriteOnce
     resources:
       requests:
-        storage: 1Gi
+        storage: 512Mi
 # Cart Service
 - apiVersion: v1
   kind: DeploymentConfig
   metadata:
     name: cart
     labels:
-      application: coolstore
-      component: cart
+      application: cart
   spec:
     replicas: 1
     selector:
@@ -482,8 +720,7 @@ objects:
     template:
       metadata:
         labels:
-          application: coolstore
-          component: cart
+          application: cart
           deploymentconfig: cart
         name: cart
       spec:
@@ -491,20 +728,17 @@ objects:
         - env:
           - name: CATALOG_ENDPOINT
             value: "http://catalog:8080"
-          - name: APPLICATION_MODE
-            value: prod
           image: cart
           imagePullPolicy: Always
           livenessProbe:
-            failureThreshold: 5
-            httpGet:
-              path: /health
-              port: 8080
-              scheme: HTTP
-            initialDelaySeconds: 45
-            periodSeconds: 5
-            successThreshold: 1
-            timeoutSeconds: 1
+            exec:
+              command:
+                - curl
+                - '-f'
+                - 'http://localhost:8080/health'
+            initialDelaySeconds: 60
+            failureThreshold: 10
+            periodSeconds: 10
           name: cart
           ports:
           - containerPort: 8778
@@ -517,20 +751,21 @@ objects:
             name: https
             protocol: TCP
           readinessProbe:
+            exec:
+              command:
+                - curl
+                - '-f'
+                - 'http://localhost:8080/health'
+            initialDelaySeconds: 60
             failureThreshold: 10
-            httpGet:
-              path: /health
-              port: 8080
-              scheme: HTTP
-            initialDelaySeconds: 45
-            periodSeconds: 5
-            successThreshold: 1
-            timeoutSeconds: 1
+            periodSeconds: 10
           resources:
             limits:
+              cpu: 1
               memory: 1Gi
             requests:
-              memory: 200Mi
+              cpu: 100m
+              memory: 256Mi
           terminationMessagePath: /dev/termination-log
         dnsPolicy: ClusterFirst
         restartPolicy: Always
@@ -551,8 +786,7 @@ objects:
   metadata:
     labels:
       app: cart
-      application: coolstore
-      component: cart
+      application: cart
     name: cart
   spec:
     ports:
@@ -565,254 +799,14 @@ objects:
   kind: Route
   metadata:
     labels:
-      application: coolstore
-      component: cart
+      application: cart
     name: cart
   spec:
+    host: cart-${HOSTNAME_SUFFIX}
     to:
       kind: Service
       name: cart
       weight: 100
-# Inventory Service
-- apiVersion: v1
-  kind: DeploymentConfig
-  metadata:
-    name: inventory
-    labels:
-      application: coolstore
-      component: inventory
-  spec:
-    replicas: 1
-    selector:
-      deploymentconfig: inventory
-    strategy:
-      resources: {}
-      type: Recreate
-    template:
-      metadata:
-        labels:
-          deploymentconfig: inventory
-          application: coolstore
-          component: inventory
-        name: inventory
-      spec:
-        containers:
-        - env:
-          - name: OPENSHIFT_KUBE_PING_LABELS
-            value: application=inventory
-          - name: OPENSHIFT_KUBE_PING_NAMESPACE
-            valueFrom:
-              fieldRef:
-                fieldPath: metadata.namespace
-          - name: MQ_CLUSTER_PASSWORD
-            value: 7mzX0pLV03
-          - name: JGROUPS_CLUSTER_PASSWORD
-            value: CqUo3fYDTv
-          - name: AUTO_DEPLOY_EXPLODED
-            value: "false"
-          - name: DB_SERVICE_PREFIX_MAPPING
-            value: inventory-postgresql=DB
-          - name: DB_JNDI
-            value: java:jboss/datasources/InventoryDS
-          - name: DB_USERNAME
-            value: ${INVENTORY_DB_USERNAME}
-          - name: DB_PASSWORD
-            value: ${INVENTORY_DB_PASSWORD}
-          - name: DB_DATABASE
-            value: inventorydb
-          image: inventory
-          imagePullPolicy: Always
-          lifecycle:
-            preStop:
-              exec:
-                command:
-                - /opt/eap/bin/jboss-cli.sh
-                - -c
-                - :shutdown(timeout=60)
-          livenessProbe:
-            failureThreshold: 5
-            httpGet:
-              path: /node
-              port: 8080
-              scheme: HTTP
-            initialDelaySeconds: 120
-            periodSeconds: 5
-            successThreshold: 1
-            timeoutSeconds: 5
-          name: inventory
-          ports:
-          - containerPort: 8778
-            name: jolokia
-            protocol: TCP
-          - containerPort: 8080
-            name: http
-            protocol: TCP
-          - containerPort: 8888
-            name: ping
-            protocol: TCP
-          readinessProbe:
-            failureThreshold: 5
-            httpGet:
-              path: /node
-              port: 8080
-              scheme: HTTP
-            initialDelaySeconds: 15
-            periodSeconds: 5
-            successThreshold: 1
-            timeoutSeconds: 1
-          resources:
-            limits:
-              cpu: 500m
-              memory: 1Gi
-            requests:
-              cpu: 100m
-              memory: 512Mi
-          terminationMessagePath: /dev/termination-log
-        dnsPolicy: ClusterFirst
-        restartPolicy: Always
-        securityContext: {}
-        terminationGracePeriodSeconds: 75
-    triggers:
-    - imageChangeParams:
-        automatic: true
-        containerNames:
-        - inventory
-        from:
-          kind: ImageStreamTag
-          name: coolstore-inventory:${APP_VERSION}
-          namespace: ${IMAGESTREAM_NAMESPACE}
-      type: ImageChange
-    - type: ConfigChange
-- apiVersion: v1
-  kind: Service
-  metadata:
-    annotations:
-      service.alpha.openshift.io/dependencies: '[{"name":"inventory-postgresql","namespace":"","kind":"Service"}]'
-    labels:
-      app: inventory
-      application: coolstore
-      component: inventory
-    name: inventory
-  spec:
-    ports:
-    - port: 8080
-      protocol: TCP
-      targetPort: 8080
-    selector:
-      deploymentconfig: inventory
-- apiVersion: v1
-  kind: Route
-  metadata:
-    labels:
-      application: coolstore
-      component: inventory
-    name: inventory
-  spec:
-    to:
-      kind: Service
-      name: inventory
-      weight: 100
-- apiVersion: v1
-  kind: DeploymentConfig
-  metadata:
-    name: inventory-postgresql
-    labels:
-      component: inventory
-      application: coolstore
-  spec:
-    replicas: 1
-    selector:
-      deploymentconfig: inventory-postgresql
-    strategy:
-      type: Recreate
-    template:
-      metadata:
-        labels:
-          application: coolstore
-          component: inventory
-          deploymentconfig: inventory-postgresql
-        name: inventory-postgresql
-      spec:
-        containers:
-        - env:
-          - name: POSTGRESQL_USER
-            value: ${INVENTORY_DB_USERNAME}
-          - name: POSTGRESQL_PASSWORD
-            value: ${INVENTORY_DB_PASSWORD}
-          - name: POSTGRESQL_DATABASE
-            value: inventorydb
-          image: postgresql
-          imagePullPolicy: Always
-          name: inventory-postgresql
-          ports:
-          - containerPort: 5432
-            protocol: TCP
-          volumeMounts:
-          - mountPath: /var/lib/pgsql/data
-            name: inventory-postgresql-data
-          livenessProbe:
-            initialDelaySeconds: 30
-            tcpSocket:
-              port: 5432
-            timeoutSeconds: 1
-          readinessProbe:
-            exec:
-              command:
-              - /bin/sh
-              - -i
-              - -c
-              - psql -h 127.0.0.1 -U $POSTGRESQL_USER -q -d $POSTGRESQL_DATABASE -c 'SELECT 1'
-            initialDelaySeconds: 5
-            timeoutSeconds: 1
-          resources:
-            limits:
-              cpu: 500m
-              memory: 512Mi
-            requests:
-              cpu: 50m
-              memory: 128Mi
-        terminationGracePeriodSeconds: 60
-        volumes:
-        - name: inventory-postgresql-data
-          persistentVolumeClaim:
-            claimName: inventory-postgresql-pv
-    triggers:
-    - imageChangeParams:
-        automatic: true
-        containerNames:
-        - inventory-postgresql
-        from:
-          kind: ImageStreamTag
-          name: postgresql:latest
-          namespace: openshift
-      type: ImageChange
-    - type: ConfigChange
-- apiVersion: v1
-  kind: Service
-  metadata:
-    labels:
-      application: coolstore
-      component: inventory
-    name: inventory-postgresql
-  spec:
-    ports:
-    - port: 5432
-      targetPort: 5432
-    selector:
-      deploymentconfig: inventory-postgresql
-- apiVersion: v1
-  kind: PersistentVolumeClaim
-  metadata:
-    labels:
-      application: coolstore
-      component: inventory
-    name: inventory-postgresql-pv
-  spec:
-    accessModes:
-    - ReadWriteOnce
-    resources:
-      requests:
-        storage: 1Gi
 parameters:
 - description: Namespace in which the ImageStreams for CoolStore services are installed
   displayName: ImageStream Namespace
@@ -825,30 +819,26 @@ parameters:
   required: true
   value: prod
 - description: Hostname suffix used for routes e.g. cart-<HOSTNAME_SUFFIX> inventory-<HOSTNAME_SUFFIX>
-  displayName: Hostname Suffix
+  displayName: Hostname suffix used for routes
   name: HOSTNAME_SUFFIX
   required: true
-- description: Catalog Service database user name
-  displayName: Catalog Database Username
-  from: user[a-zA-Z0-9]{3}
-  generate: expression
-  name: CATALOG_DB_USERNAME
-  required: true
-- description: Catalog Service database user password
-  displayName: Catalog Database Password
-  from: '[a-zA-Z0-9]{8}'
-  generate: expression
-  name: CATALOG_DB_PASSWORD
-  required: true
 - description: Inventory Service database user name
-  displayName: Inventory Database Username
   from: user[a-zA-Z0-9]{3}
   generate: expression
   name: INVENTORY_DB_USERNAME
   required: true
 - description: Inventory Service database user password
-  displayName: Inventory Database Password
   from: '[a-zA-Z0-9]{8}'
   generate: expression
   name: INVENTORY_DB_PASSWORD
+  required: true
+- description: Catalog Service database user name
+  from: user[a-zA-Z0-9]{3}
+  generate: expression
+  name: CATALOG_DB_USERNAME
+  required: true
+- description: Catalog Service database user password
+  from: '[a-zA-Z0-9]{8}'
+  generate: expression
+  name: CATALOG_DB_PASSWORD
   required: true
