@@ -280,7 +280,7 @@ objects:
           livenessProbe:
             failureThreshold: 10
             httpGet:
-              path: /api/availability/1
+              path: /
               port: 8080
               scheme: HTTP
             initialDelaySeconds: 60
@@ -301,7 +301,7 @@ objects:
           readinessProbe:
             failureThreshold: 10
             httpGet:
-              path: /api/availability/1
+              path: /node
               port: 8080
               scheme: HTTP
             initialDelaySeconds: 60
