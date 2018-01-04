@@ -156,29 +156,28 @@ objects:
             value: "true"
           image: library/coolstore-gw:${APP_VERSION}
           livenessProbe:
-            exec:
-              command:
-                - curl
-                - '-f'
-                - 'http://localhost:8081/health'
-            initialDelaySeconds: 30
-            failureThreshold: 10
+            httpGet:
+              path: /health
+              port: 8080
+              scheme: HTTP
+            initialDelaySeconds: 15
             periodSeconds: 10
-            timeoutSeconds: 5
+            successThreshold: 1
+            timeoutSeconds: 1
           name: coolstore-gw
           ports:
           - containerPort: 8778
             name: jolokia
           readinessProbe:
-            exec:
-              command:
-                - curl
-                - '-f'
-                - 'http://localhost:8081/health'
-            initialDelaySeconds: 30
-            failureThreshold: 10
+            failureThreshold: 3
+            httpGet:
+              path: /health
+              port: 8080
+              scheme: HTTP
+            initialDelaySeconds: 10
             periodSeconds: 10
-            timeoutSeconds: 5
+            successThreshold: 1
+            timeoutSeconds: 1
           resources:
             limits:
               cpu: 1
